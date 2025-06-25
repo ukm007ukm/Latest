@@ -1,0 +1,34 @@
+name: 📈 RPower Daily Report
+
+on:
+  schedule:
+    - cron: "0 5 * * *"  # Every day at 5 AM UTC (10:30 AM IST)
+  workflow_dispatch:     # Allow manual trigger from GitHub
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⬇️ Checkout repo
+        uses: actions/checkout@v3
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install yfinance feedparser fpdf
+
+      - name: 🔐 Set up secrets
+        env:
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        run: echo "Secrets ready"
+
+      - name: 🚀 Run app.py
+        env:
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        run: |
+          echo "$EMAIL_PASSWORD" > .email_pass
+          python app.py
