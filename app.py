@@ -1,93 +1,78 @@
-import smtplib
+import yfinance as yf
+import requests, feedparser, smtplib, os
+from fpdf import FPDF
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
-import requests
-from bs4 import BeautifulSoup
-from fpdf import FPDF
 from datetime import datetime
 
-# Configuration
-sender_email = "007aiyt@gmail.com"
-receiver_email = "7haveli7@gmail.com"
-app_password = "ckrfoxotcyxqzgrq"
-smtp_server = "smtp.gmail.com"
-smtp_port = 587
+# 📩 Email config — replace with yours
+FROM_EMAIL = "007aiyt@gmail.com"
+EMAIL_PASSWORD = "ckrfoxotcyxqzgrq"
+TO_EMAIL = "7haveli7@gmail.com"
 
-SOURCES = {
-    "PIB Press Releases": "https://pib.gov.in/PressReleasePage.aspx",
-    "InsightsIAS": "https://www.insightsonindia.com/current-affairs/",
-    "Jagran Josh - UPSC": "https://www.jagranjosh.com/upsc"
-}
+def fetch_news():
+    feed = feedparser.parse("https://news.google.com/rss/search?q=rpower")
+    return "\n".join([f"- {e.title}\n  {e.link}" for e in feed.entries[:3]]) or "No recent news."
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+def fetch_financials():
+    ticker = yf.Ticker("RPOWER.NS")
+    info = ticker.info
+    fin = {
+        "P/E Ratio": info.get("trailingPE", "N/A"),
+        "Market Cap": f"{info.get('marketCap', 'N/A'):,}" if info.get("marketCap") else "N/A",
+        "Profit Margin (%)": info.get("profitMargins", "N/A"),
+        "Operating Margin (%)": info.get("operatingMargins", "N/A"),
+        "Quarterly PAT (₹ Crore)": (
+            f"{ticker.quarterly_financials.loc['Net Income', :].iloc[0]/1e7:.2f}"
+            if hasattr(ticker, "quarterly_financials") and "Net Income" in ticker.quarterly_financials.index
+            else "N/A"
+        )
+    }
+    return fin
 
-def scrape_current_affairs():
-    print("[*] Scraping UPSC Current Affairs...")
-    messages = []
+def fetch_shareholding():
+    ticker = yf.Ticker("RPOWER.NS")
+    inst = ticker.institutional_holders
+    if inst is None or inst.empty:
+        return {"Institutional Holders": "N/A"}
+    top = inst.sort_values('Shares', ascending=False).head(3)
+    return {row['Holder']: f"{row['Shares']:,}" for _, row in top.iterrows()}
 
-    for title, url in SOURCES.items():
-        try:
-            res = requests.get(url, headers=HEADERS, timeout=15)
-            res.raise_for_status()
-            soup = BeautifulSoup(res.text, "html.parser")
-
-            links = soup.find_all("a", href=True)
-            relevant = []
-
-            for link in links:
-                text = link.get_text(strip=True).lower()
-                if any(k in text for k in ["upsc", "current affairs", "civil services", "ias", "exam"]):
-                    relevant.append(link.get_text(strip=True))
-
-            if relevant:
-                messages.append(f"🔎 {title}:\n" + "\n".join(relevant[:10]))
-            else:
-                messages.append(f"🔎 {title}:\nNo relevant updates right now.")
-
-        except Exception as e:
-            messages.append(f"🔎 {title}:\nError: {e}")
-
-    return "\n\n".join(messages)
-
-def generate_pdf(content, filename="upsc_digest.pdf"):
-    print("[*] Generating PDF...")
+def create_pdf(text):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
-    for line in content.split("\n"):
-        pdf.cell(200, 10, txt=line.encode("latin-1", "replace").decode("latin-1"), ln=True)
-    pdf.output(filename)
+    for line in text.split("\n"):
+        pdf.multi_cell(0, 8, line.encode("latin-1", "ignore").decode("latin-1"))
+    fname = f"RPower_Report_{datetime.now():%Y%m%d}.pdf"
+    pdf.output(fname)
+    return fname
 
-def send_email(subject, body, attachment_path):
-    print("[*] Sending Email...")
+def send_email(subject, body, attachment):
     msg = MIMEMultipart()
-    msg["From"] = sender_email
-    msg["To"] = receiver_email
-    msg["Subject"] = subject
-
+    msg["From"], msg["To"], msg["Subject"] = FROM_EMAIL, TO_EMAIL, subject
     msg.attach(MIMEText(body, "plain"))
-
-    with open(attachment_path, "rb") as f:
-        part = MIMEApplication(f.read(), Name="upsc_digest.pdf")
-        part["Content-Disposition"] = 'attachment; filename="upsc_digest.pdf"'
+    with open(attachment, "rb") as f:
+        part = MIMEApplication(f.read(), _subtype="pdf")
+        part.add_header("Content-Disposition", "attachment", filename=os.path.basename(attachment))
         msg.attach(part)
-
-    try:
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(sender_email, app_password)
-            server.send_message(msg)
-        print("[✓] Email sent successfully.")
-    except smtplib.SMTPAuthenticationError as e:
-        print("[!] Authentication Error:", e)
-    except Exception as e:
-        print("[!] Failed to send:", e)
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+        s.login(FROM_EMAIL, EMAIL_PASSWORD)
+        s.send_message(msg)
 
 if __name__ == "__main__":
-    print("[*] Running at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    message = scrape_current_affairs()
-    generate_pdf(message)
-    send_email("UPSC Current Affairs Digest", message, "upsc_digest.pdf")
+    news = fetch_news()
+    fin = fetch_financials()
+    holders = fetch_shareholding()
+
+    content = (
+        f"🗞️ RPower Daily Report — {datetime.now():%Y-%m-%d}\n\n"
+        f"**News:**\n{news}\n\n**Financial Metrics:**\n"
+        + "\n".join(f"{k}: {v}" for k, v in fin.items()) + "\n\n**Shareholding:**\n"
+        + "\n".join(f"{k}: {v}" for k, v in holders.items())
+    )
+
+    pdf = create_pdf(content)
+    send_email("📈 RPower Daily Financial Update", content, pdf)
+    print("✅ Sent the daily report.")
