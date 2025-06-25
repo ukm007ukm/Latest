@@ -8,9 +8,9 @@ from fpdf import FPDF
 from datetime import datetime
 
 # Configuration
-sender_email = "your-email@gmail.com"
-receiver_email = "your-target-email@gmail.com"
-app_password = "your-app-password"
+sender_email = "007aiyt@gmail.com"
+receiver_email = "7haveli7@gmail.com"
+app_password = "ckrfoxotcyxqzgrq"
 smtp_server = "smtp.gmail.com"
 smtp_port = 587
 
