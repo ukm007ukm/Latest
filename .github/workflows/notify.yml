@@ -22,4 +22,4 @@ jobs:
           pip install requests beautifulsoup4 fpdf
 
       - name: Run notification script
-        run: python Latest/app.py
+        run: python app.py
